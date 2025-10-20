@@ -1,38 +1,38 @@
 """
-This script provides a command-line interface for configuring the Chzzk Rekoda application.
+이 스크립트는 Chzzk Rekoda 애플리케이션 설정을 위한 명령줄 인터페이스를 제공합니다.
 
-It allows users to manage channel settings (add, delete, toggle recording),
-adjust recording parameters (threads, rescan interval), set authentication cookies,
-and toggle logging. All settings are persisted to JSON or text files in the
-application's root directory.
+사용자는 이 인터페이스를 통해 채널 설정(추가, 삭제, 녹화 토글),
+녹화 매개변수(스레드, 재검색 간격) 조정, 인증 쿠키 설정,
+로깅 토글 등을 관리할 수 있습니다. 모든 설정은 애플리케이션의
+루트 디렉토리에 있는 JSON 또는 텍스트 파일에 저장됩니다.
 """
 import os
 import json
 from typing import List, Dict, Any
 
-# --- File Path Settings ---
+# --- 파일 경로 설정 ---
 script_directory = os.path.dirname(os.path.abspath(__name__))
 channel_count_file_path = os.path.join(script_directory, "channel_count.txt")
 channels_file_path = os.path.join(script_directory, "channels.json")
 delays_file_path = os.path.join(script_directory, "delays.json")
 log_enabled_file_path = os.path.join(script_directory, "log_enabled.txt")
 
-# --- Global Variables ---
+# --- 전역 변수 ---
 channels: List[Dict[str, Any]] = []
 delays: Dict[str, int] = {}
 channel_count: int = 0
 log_enabled: bool = True
 
-# --- Utility Functions ---
+# --- 유틸리티 함수 ---
 
 def try_again():
-    """Prints a message asking the user to try again."""
-    print("Please try again.\n")
+    """사용자에게 다시 시도하라는 메시지를 출력합니다."""
+    print("다시 시도해주세요.\n")
 
-# --- Data Loading and Saving ---
+# --- 데이터 로딩 및 저장 ---
 
 def load_data():
-    """Loads all necessary data from files into global variables."""
+    """파일에서 모든 필요한 데이터를 전역 변수로 로드합니다."""
     global channels, delays, channel_count, log_enabled
 
     if os.path.exists(channels_file_path):
@@ -56,33 +56,33 @@ def load_data():
         log_enabled = True
 
 def save_channels():
-    """Saves the current state of the channels list to channels.json."""
+    """채널 목록의 현재 상태를 channels.json에 저장합니다."""
     with open(channels_file_path, "w") as f:
-        json.dump(channels, f, indent=2)
-    print("The channels.json file has been modified.")
+        json.dump(channels, f, indent=2, ensure_ascii=False)
+    print("channels.json 파일이 수정되었습니다.")
 
 def save_delays():
-    """Saves the current state of the delays dictionary to delays.json."""
+    """delays 딕셔너리의 현재 상태를 delays.json에 저장합니다."""
     with open(delays_file_path, "w") as f:
-        json.dump(delays, f, indent=2)
-    print("The delays.json file has been modified.")
+        json.dump(delays, f, indent=2, ensure_ascii=False)
+    print("delays.json 파일이 수정되었습니다.")
 
 def save_channel_count():
-    """Saves the current channel count to channel_count.txt."""
+    """현재 채널 수를 channel_count.txt에 저장합니다."""
     with open(channel_count_file_path, "w") as f:
         f.write(str(channel_count))
 
-# --- Core Functionality ---
+# --- 핵심 기능 ---
 
 def add_channel():
-    """Handles the user prompts for adding a new channel and saves it."""
+    """새 채널 추가를 위한 사용자 프롬프트를 처리하고 저장합니다."""
     global channel_count
-    ch_id = input("Enter the unique ID of the streamer channel you want to add: ")
-    name = input("Enter the streamer name: ")
-    output_dir = input("Specify the storage path (leave empty for default './recordings'): ") or "./recordings"
+    ch_id = input("추가할 스트리머 채널의 고유 ID를 입력하세요: ")
+    name = input("스트리머 이름을 입력하세요: ")
+    output_dir = input("저장 경로를 지정하세요 (기본값 './recordings'는 비워두세요): ") or "./recordings"
 
     while True:
-        answer = input(f"id: {ch_id}, name: {name}, storage path: {output_dir}. Is this correct? (Y/N): ").upper()
+        answer = input(f"ID: {ch_id}, 이름: {name}, 저장 경로: {output_dir}. 맞습니까? (Y/N): ").upper()
         if answer == "Y":
             channel_count += 1
             identifier = f"ch{channel_count}"
@@ -99,34 +99,32 @@ def add_channel():
             save_channel_count()
             break
         elif answer == "N":
-            print("Then please enter it again.")
+            print("그럼 다시 입력해주세요.")
             break
         else:
             try_again()
 
 def delete_channel():
-    """Handles the user prompts for deleting an existing channel."""
+    """기존 채널 삭제를 위한 사용자 프롬프트를 처리합니다."""
     global channel_count
     if not channels:
-        print("No channels to delete.")
+        print("삭제할 채널이 없습니다.")
         return
 
-    print("Current channel list:")
+    print("현재 채널 목록:")
     for idx, channel in enumerate(channels, 1):
-        print(f"{idx}. id: {channel['id']}, name: {channel['name']}")
+        print(f"{idx}. ID: {channel['id']}, 이름: {channel['name']}")
 
     try:
-        choice = int(input("Enter the number of the channel to delete: ")) - 1
+        choice = int(input("삭제할 채널의 번호를 입력하세요: ")) - 1
         if 0 <= choice < len(channels):
             deleted_channel = channels.pop(choice)
-            print(f"Deleted channel: id: {deleted_channel['id']}, name: {deleted_channel['name']}")
+            print(f"삭제된 채널: ID: {deleted_channel['id']}, 이름: {deleted_channel['name']}")
 
-            # Update channel count and identifiers
             channel_count -= 1
             save_channel_count()
 
             delays.pop(deleted_channel["identifier"], None)
-            # Re-generate identifiers and delays
             new_delays = {}
             for i, channel in enumerate(channels):
                 new_id = f"ch{i + 1}"
@@ -139,100 +137,100 @@ def delete_channel():
             save_channels()
             save_delays()
         else:
-            print("Invalid channel number.")
+            print("잘못된 채널 번호입니다.")
     except ValueError:
-        print("Invalid input. Please enter a valid number.")
+        print("잘못된 입력입니다. 유효한 번호를 입력해주세요.")
 
 def toggle_channel_recording():
-    """Handles toggling a channel's recording status between 'on' and 'off'."""
+    """채널의 녹화 상태를 'on'과 'off' 사이에서 토글합니다."""
     if not channels:
-        print("No channels available to toggle.")
+        print("토글할 채널이 없습니다.")
         return
 
-    print("Current channel list:")
+    print("현재 채널 목록:")
     for idx, channel in enumerate(channels, 1):
-        status = 'On' if channel.get('active', 'on') == 'on' else 'Off'
-        print(f"{idx}. id: {channel['id']}, name: {channel['name']}, recording status: {status}")
+        status = '켜짐' if channel.get('active', 'on') == 'on' else '꺼짐'
+        print(f"{idx}. ID: {channel['id']}, 이름: {channel['name']}, 녹화 상태: {status}")
 
     try:
-        choice = int(input("Enter the number of the channel to toggle recording status: ")) - 1
+        choice = int(input("녹화 상태를 토글할 채널의 번호를 입력하세요: ")) - 1
         if 0 <= choice < len(channels):
             channel = channels[choice]
             current_state = channel.get("active", "on")
             new_state = "off" if current_state == "on" else "on"
             channel["active"] = new_state
-            print(f"The recording status of {channel['name']} has been changed to {'Off' if new_state == 'off' else 'On'}.")
+            print(f"{channel['name']} 채널의 녹화 상태가 {'꺼짐' if new_state == 'off' else '켜짐'}(으)로 변경되었습니다.")
             save_channels()
         else:
-            print("Invalid channel number.")
+            print("잘못된 채널 번호입니다.")
     except ValueError:
-        print("Invalid input. Please enter a valid number.")
+        print("잘못된 입력입니다. 유효한 번호를 입력해주세요.")
 
 def set_recording_threads():
-    """Allows the user to set the number of recording threads."""
+    """사용자가 녹화 스레드 수를 설정할 수 있도록 합니다."""
     thread_file_path = os.path.join(script_directory, "thread.txt")
     try:
         with open(thread_file_path, "r") as f:
             threads = f.readline().strip()
-        print(f"The current number of recording threads is {threads}.")
+        print(f"현재 녹화 스레드 수는 {threads}개입니다.")
     except FileNotFoundError:
-        print("Thread setting file not found. A new one will be created.")
+        print("스레드 설정 파일을 찾을 수 없습니다. 새로 생성됩니다.")
 
-    print("Recommended: 2 for low-end systems, 4 for high-end systems.")
-    new_threads = input("Enter the number of threads to change: ")
+    print("권장: 저사양 시스템은 2, 고사양 시스템은 4.")
+    new_threads = input("변경할 스레드 수를 입력하세요: ")
     if new_threads.isdigit():
         with open(thread_file_path, "w") as f:
             f.write(new_threads)
-        print("The number of threads has been changed.")
+        print("스레드 수가 변경되었습니다.")
     else:
-        print("Invalid input. Please enter a number.")
+        print("잘못된 입력입니다. 숫자를 입력해주세요.")
 
 def set_rescan_interval():
-    """Allows the user to set the broadcast rescan interval."""
+    """사용자가 방송 재검색 간격을 설정할 수 있도록 합니다."""
     rescan_file_path = os.path.join(script_directory, "time_sleep.txt")
     try:
         with open(rescan_file_path, "r") as f:
             interval = f.readline().strip()
-        print(f"The current broadcast rescan interval is {interval} seconds.")
+        print(f"현재 방송 재검색 간격은 {interval}초입니다.")
     except FileNotFoundError:
-        print("Rescan interval file not found. A new one will be created.")
+        print("재검색 간격 파일을 찾을 수 없습니다. 새로 생성됩니다.")
 
-    new_interval = input("Enter the rescan interval to change (in seconds): ")
+    new_interval = input("변경할 재검색 간격을 초 단위로 입력하세요: ")
     if new_interval.isdigit():
         with open(rescan_file_path, "w") as f:
             f.write(new_interval)
-        print("The broadcast rescan interval has been changed.")
+        print("방송 재검색 간격이 변경되었습니다.")
     else:
-        print("Invalid input. Please enter a number.")
+        print("잘못된 입력입니다. 숫자를 입력해주세요.")
 
 def save_cookie_info():
-    """Prompts the user for cookie values and saves them to cookie.json."""
-    ses = input("Enter SES: ")
-    aut = input("Enter AUT: ")
+    """사용자에게 쿠키 값을 입력받아 cookie.json에 저장합니다."""
+    ses = input("SES를 입력하세요: ")
+    aut = input("AUT를 입력하세요: ")
     cookie_data = {"NID_SES": ses, "NID_AUT": aut}
     with open("cookie.json", "w") as f:
         json.dump(cookie_data, f, indent=2)
-    print("Cookie information has been successfully saved.")
+    print("쿠키 정보가 성공적으로 저장되었습니다.")
 
 def toggle_logging():
-    """Toggles the logging setting on or off."""
+    """로깅 설정을 켜거나 끕니다."""
     global log_enabled
     log_enabled = not log_enabled
     with open(log_enabled_file_path, "w") as f:
         f.write("true" if log_enabled else "false")
-    print(f"Logging has been {'enabled' if log_enabled else 'disabled'}.")
+    print(f"로깅이 {'활성화' if log_enabled else '비활성화'}되었습니다.")
 
-# --- Menu Functions ---
+# --- 메뉴 함수 ---
 
 def manage_channel_settings():
-    """Displays the channel settings sub-menu and handles user input."""
+    """채널 설정 하위 메뉴를 표시하고 사용자 입력을 처리합니다."""
     while True:
-        print("\n--- Channel Settings ---")
-        print("1. Add Channel")
-        print("2. Delete Channel")
-        print("3. Toggle Channel Recording")
-        print("4. Go Back")
-        choice = input("Enter your choice: ")
+        print("\n--- 채널 설정 ---")
+        print("1. 채널 추가")
+        print("2. 채널 삭제")
+        print("3. 채널 녹화 토글")
+        print("4. 뒤로 가기")
+        choice = input("원하는 작업을 선택하세요: ")
 
         if choice == "1":
             add_channel()
@@ -246,13 +244,13 @@ def manage_channel_settings():
             try_again()
 
 def manage_recording_settings():
-    """Displays the recording settings sub-menu and handles user input."""
+    """녹화 설정 하위 메뉴를 표시하고 사용자 입력을 처리합니다."""
     while True:
-        print("\n--- Recording Settings ---")
-        print("1. Set Recording Threads")
-        print("2. Set Broadcast Rescan Interval")
-        print("3. Go Back")
-        choice = input("Enter your choice: ")
+        print("\n--- 녹화 설정 ---")
+        print("1. 녹화 스레드 설정")
+        print("2. 방송 재검색 간격 설정")
+        print("3. 뒤로 가기")
+        choice = input("원하는 작업을 선택하세요: ")
 
         if choice == "1":
             set_recording_threads()
@@ -264,16 +262,16 @@ def manage_recording_settings():
             try_again()
 
 def main_menu():
-    """Displays the main menu and orchestrates the user interaction loop."""
+    """메인 메뉴를 표시하고 사용자 상호 작용 루프를 조정합니다."""
     load_data()
     while True:
-        print("\n--- Chzzk Auto-Recording Settings ---")
-        print("1. Channel Settings")
-        print("2. Recording Settings")
-        print("3. Cookie Settings (for adult verification)")
-        print(f"4. Toggle Logging ({'Enabled' if log_enabled else 'Disabled'})")
-        print("5. Quit")
-        choice = input("Enter your choice: ")
+        print("\n--- Chzzk 자동 녹화 설정 ---")
+        print("1. 채널 설정")
+        print("2. 녹화 설정")
+        print("3. 쿠키 설정 (성인 인증용)")
+        print(f"4. 로깅 토글 ({'활성화' if log_enabled else '비활성화'})")
+        print("5. 종료")
+        choice = input("원하는 작업을 선택하세요: ")
 
         if choice == "1":
             manage_channel_settings()
@@ -284,7 +282,7 @@ def main_menu():
         elif choice == "4":
             toggle_logging()
         elif choice == "5":
-            print("Exiting the settings.")
+            print("설정을 종료합니다.")
             break
         else:
             try_again()

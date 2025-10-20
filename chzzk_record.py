@@ -1,10 +1,9 @@
 """
-This script is the main entry point for the Chzzk Rekoda, an automated recording tool for the Chzzk streaming platform.
+이 스크립트는 Chzzk Rekoda의 메인 진입점으로, Chzzk 스트리밍 플랫폼을 위한 자동 녹화 도구입니다.
 
-It uses asyncio for concurrent stream recording, aiohttp for asynchronous HTTP requests,
-and the Rich library to display a real-time progress dashboard in the terminal.
-The script manages multiple recording tasks, handles graceful shutdown, and provides
-detailed logging.
+이 스크립트는 동시 스트림 녹화를 위해 asyncio를, 비동기 HTTP 요청을 위해 aiohttp를,
+그리고 터미널에 실시간 진행 상황 대시보드를 표시하기 위해 Rich 라이브러리를 사용합니다.
+스크립트는 여러 녹화 작업을 관리하고, 정상적인 종료를 처리하며, 상세한 로깅을 제공합니다.
 """
 import asyncio
 import hashlib
@@ -28,7 +27,7 @@ if platform.system() != "Windows":
 
     uvloop.install()
 
-# Import Rich library components
+# Rich 라이브러리 구성 요소 가져오기
 from rich.console import Console, Group
 from rich.live import Live
 from rich.table import Table
@@ -36,23 +35,23 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.text import Text
 
-# Global console instance for Rich
+# Rich를 위한 전역 콘솔 인스턴스
 console = Console()
 
-# Shared data structure for channel progress
+# 채널 진행 상황을 위한 공유 데이터 구조
 channel_progress: Dict[str, Dict[str, Any]] = {}
 channel_progress_lock = asyncio.Lock()
 
-# Create a queue for log messages
+# 로그 메시지를 위한 큐 생성
 log_queue: asyncio.Queue = asyncio.Queue()
 
 
-# Helper function to load log_enabled
+# log_enabled 로드를 위한 헬퍼 함수
 def get_log_enabled() -> bool:
-    """Checks if logging is enabled by reading from 'log_enabled.txt'.
+    """'log_enabled.txt'에서 읽어 로깅 활성화 여부를 확인합니다.
 
-    Returns:
-        bool: True if logging is enabled, False otherwise.
+    반환값:
+        bool: 로깅이 활성화된 경우 True, 그렇지 않은 경우 False.
     """
     script_directory = os.path.dirname(os.path.abspath(__file__))
     log_enabled_file_path = os.path.join(script_directory, "log_enabled.txt")
@@ -62,12 +61,12 @@ def get_log_enabled() -> bool:
     return True
 
 
-# Function to toggle log_enabled
+# log_enabled 토글 함수
 def toggle_log_enabled():
-    """Toggles the logging state between enabled and disabled.
+    """로깅 상태를 활성화와 비활성화 사이에서 토글합니다.
 
-    This function reads the current state from 'log_enabled.txt', inverts it,
-    and writes the new state back to the file.
+    이 함수는 'log_enabled.txt'에서 현재 상태를 읽어와 반전시킨 후,
+    새로운 상태를 파일에 다시 씁니다.
     """
     script_directory = os.path.dirname(os.path.abspath(__file__))
     log_enabled_file_path = os.path.join(script_directory, "log_enabled.txt")
@@ -75,49 +74,49 @@ def toggle_log_enabled():
     new_state = not current_state
     with open(log_enabled_file_path, "w") as f:
         f.write("true" if new_state else "false")
-    print(f"Logging has been {'enabled' if new_state else 'disabled'}.")
+    print(f"로깅이 {'활성화' if new_state else '비활성화'}되었습니다.")
 
 
-# Custom logging handler to put log messages into the queue
+# 로그 메시지를 큐에 넣는 사용자 정의 로깅 핸들러
 class QueueHandler(logging.Handler):
-    """A logging handler that puts log records into an asyncio queue."""
+    """로그 레코드를 asyncio 큐에 넣는 로깅 핸들러입니다."""
 
     def __init__(self, queue: asyncio.Queue):
-        """Initializes the handler with a given queue.
+        """주어진 큐로 핸들러를 초기화합니다.
 
         Args:
-            queue: The asyncio.Queue to which log messages will be sent.
+            queue: 로그 메시지가 전송될 asyncio.Queue.
         """
         super().__init__()
         self.queue = queue
 
     def emit(self, record):
-        """Formats and puts a log record into the queue.
+        """로그 레코드를 포맷하고 큐에 넣습니다.
 
-        If the queue is full, the message is dropped.
+        큐가 가득 차면 메시지는 삭제됩니다.
 
         Args:
-            record: The log record to be emitted.
+            record: 내보낼 로그 레코드.
         """
         msg = self.format(record)
         try:
             self.queue.put_nowait(msg)
         except asyncio.QueueFull:
-            pass  # Handle the case where the queue is full
+            pass  # 큐가 가득 찬 경우 처리
 
 
-# Logger setup
+# 로거 설정
 class FfmpegStderrFilter(logging.Filter):
-    """A logging filter to exclude specific ffmpeg stderr messages."""
+    """특정 ffmpeg stderr 메시지를 제외하기 위한 로깅 필터입니다."""
 
     def filter(self, record):
-        """Filters out 'Invalid DTS' messages from ffmpeg stderr.
+        """ffmpeg stderr에서 'Invalid DTS' 메시지를 필터링합니다.
 
         Args:
-            record: The log record to be checked.
+            record: 확인할 로그 레코드.
 
-        Returns:
-            bool: False if the message should be filtered out, True otherwise.
+        반환값:
+            bool: 메시지를 필터링해야 하는 경우 False, 그렇지 않은 경우 True.
         """
         msg = record.getMessage()
         if "ffmpeg stderr" in msg and "Invalid DTS" in msg:
@@ -126,18 +125,18 @@ class FfmpegStderrFilter(logging.Filter):
 
 
 def setup_logger() -> logging.Logger:
-    """Configures and returns the main logger for the application.
+    """애플리케이션의 메인 로거를 구성하고 반환합니다.
 
-    The logger is configured with a file handler (if logging is enabled)
-    and a queue handler for displaying logs in the UI.
+    로거는 파일 핸들러(로깅이 활성화된 경우)와 UI에 로그를 표시하기 위한
+    큐 핸들러로 구성됩니다.
 
-    Returns:
-        logging.Logger: The configured logger instance.
+    반환값:
+        logging.Logger: 구성된 로거 인스턴스.
     """
     logger = logging.getLogger("Recorder")
     logger.setLevel(logging.DEBUG)
 
-    # Check if logging is enabled
+    # 로깅 활성화 여부 확인
     log_enabled = get_log_enabled()
 
     if log_enabled:
@@ -150,7 +149,7 @@ def setup_logger() -> logging.Logger:
         file_handler.addFilter(FfmpegStderrFilter())
         logger.addHandler(file_handler)
 
-    # QueueHandler is always active (for UI display)
+    # QueueHandler는 항상 활성 상태 (UI 표시용)
     queue_handler = QueueHandler(log_queue)
     queue_handler.setLevel(logging.INFO)
     queue_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
@@ -169,7 +168,7 @@ print(
     "버그나 에러가 발생하면 깃허브 이슈에 제보해 주세요!"
 )
 
-# Constants
+# 상수
 LIVE_DETAIL_API = (
     "https://api.chzzk.naver.com/service/v3/channels/{channel_id}/live-detail"
 )
@@ -181,24 +180,24 @@ COOKIE_FILE_PATH = Path("cookie.json")
 PLUGIN_DIR_PATH = Path("plugin")
 SPECIAL_CHARS_REMOVER = re.compile(r'[\\/:*?"<>|]')
 
-# Max filename length constants
+# 최대 파일 이름 길이 상수
 MAX_FILENAME_BYTES = 255
 MAX_HASH_LENGTH = 8
-RESERVED_BYTES = MAX_HASH_LENGTH + 1  # Hash length and one underscore
+RESERVED_BYTES = MAX_HASH_LENGTH + 1  # 해시 길이와 밑줄 하나
 
-# Global variables for graceful shutdown
+# 정상적인 종료를 위한 전역 변수
 shutdown_event = asyncio.Event()
 
 
-# Helper functions
+# 헬퍼 함수
 async def setup_paths() -> Optional[Path]:
-    """Determines the path to the ffmpeg executable.
+    """ffmpeg 실행 파일의 경로를 결정합니다.
 
-    It checks for ffmpeg in the local 'ffmpeg/bin' directory on Windows,
-    and in the system's PATH on other operating systems.
+    Windows에서는 로컬 'ffmpeg/bin' 디렉토리에서 ffmpeg를 확인하고,
+    다른 운영 체제에서는 시스템의 PATH에서 확인합니다.
 
-    Returns:
-        Optional[Path]: The path to the ffmpeg executable, or None if not found.
+    반환값:
+        Optional[Path]: ffmpeg 실행 파일의 경로. 찾을 수 없는 경우 None.
     """
     base_dir = Path(__file__).parent
     os_name = platform.system()
@@ -206,7 +205,7 @@ async def setup_paths() -> Optional[Path]:
 
     if os_name == "Windows":
         ffmpeg_path = base_dir / "ffmpeg/bin/ffmpeg.exe"
-        logger.info("Running on Windows.")
+        logger.info("Windows에서 실행 중입니다.")
     else:
         try:
             process = await asyncio.create_subprocess_exec(
@@ -218,48 +217,48 @@ async def setup_paths() -> Optional[Path]:
             stdout, _ = await process.communicate()
             if process.returncode == 0:
                 ffmpeg_path = Path(stdout.decode().strip())
-                logger.info(f"Running on {os_name}. ffmpeg found at: {ffmpeg_path}")
+                logger.info(f"{os_name}에서 실행 중입니다. ffmpeg 경로: {ffmpeg_path}")
             else:
-                logger.error("ffmpeg not found on the system PATH.")
+                logger.error("시스템 PATH에서 ffmpeg를 찾을 수 없습니다.")
         except Exception as e:
-            logger.error(f"Error finding ffmpeg on {os_name}: {e}")
+            logger.error(f"{os_name}에서 ffmpeg를 찾는 중 오류 발생: {e}")
 
     return ffmpeg_path
 
 
 async def load_json_async(file_path: Path) -> Any:
-    """Asynchronously loads a JSON file.
+    """JSON 파일을 비동기적으로 로드합니다.
 
     Args:
-        file_path: The path to the JSON file.
+        file_path: JSON 파일의 경로.
 
-    Returns:
-        Any: The parsed JSON content, or None if an error occurs.
+    반환값:
+        Any: 파싱된 JSON 내용. 오류 발생 시 None.
     """
     if not file_path.exists():
-        logger.error(f"File not found: {file_path}")
+        logger.error(f"파일을 찾을 수 없습니다: {file_path}")
         return None
     try:
         async with aiofiles.open(file_path, "rb") as file:
             content = await file.read()
             return orjson.loads(content)
     except orjson.JSONDecodeError as e:
-        logger.error(f"JSON decode error in {file_path}: {e}")
+        logger.error(f"{file_path}에서 JSON 디코드 오류: {e}")
         return None
     except Exception as e:
-        logger.error(f"Error loading JSON from {file_path}: {e}")
+        logger.error(f"{file_path}에서 JSON을 로드하는 중 오류 발생: {e}")
         return None
 
 
 async def load_settings() -> Tuple[int, int, List[Dict[str, Any]], Dict[str, int]]:
-    """Loads various settings from their respective files.
+    """각각의 파일에서 다양한 설정을 로드합니다.
 
-    This function concurrently loads the timeout, stream segment threads,
-    channel list, and delay settings.
+    이 함수는 타임아웃, 스트림 세그먼트 스레드, 채널 목록 및
+    지연 설정을 동시에 로드합니다.
 
-    Returns:
-        Tuple[int, int, List[Dict[str, Any]], Dict[str, int]]: A tuple containing
-        the timeout, stream segment threads, list of channels, and a dictionary of delays.
+    반환값:
+        Tuple[int, int, List[Dict[str, Any]], Dict[str, int]]: 타임아웃,
+        스트림 세그먼트 스레드, 채널 목록, 지연 딕셔너리를 포함하는 튜플.
     """
     settings = await asyncio.gather(
         load_json_async(TIME_FILE_PATH),
@@ -268,7 +267,7 @@ async def load_settings() -> Tuple[int, int, List[Dict[str, Any]], Dict[str, int
         load_json_async(DELAYS_FILE_PATH),
     )
 
-    # Validate and set defaults
+    # 기본값 검증 및 설정
     timeout = settings[0] if isinstance(settings[0], int) else 60
     stream_segment_threads = settings[1] if isinstance(settings[1], int) else 2
     channels = settings[2] if isinstance(settings[2], list) else []
@@ -278,13 +277,13 @@ async def load_settings() -> Tuple[int, int, List[Dict[str, Any]], Dict[str, int
 
 
 def get_auth_headers(cookies: Dict[str, str]) -> Dict[str, str]:
-    """Constructs authentication headers from cookie values.
+    """쿠키 값으로 인증 헤더를 구성합니다.
 
     Args:
-        cookies: A dictionary containing 'NID_AUT' and 'NID_SES' cookies.
+        cookies: 'NID_AUT'와 'NID_SES' 쿠키를 포함하는 딕셔너리.
 
-    Returns:
-        Dict[str, str]: A dictionary of headers for authenticated requests.
+    반환값:
+        Dict[str, str]: 인증된 요청을 위한 헤더 딕셔너리.
     """
     nid_aut = cookies.get("NID_AUT", "")
     nid_ses = cookies.get("NID_SES", "")
@@ -300,15 +299,15 @@ def get_auth_headers(cookies: Dict[str, str]) -> Dict[str, str]:
 
 
 async def get_session_cookies() -> Dict[str, str]:
-    """Loads session cookies from 'cookie.json'.
+    """'cookie.json'에서 세션 쿠키를 로드합니다.
 
-    Returns:
-        Dict[str, str]: A dictionary of session cookies, or an empty dictionary if not found.
+    반환값:
+        Dict[str, str]: 세션 쿠키 딕셔너리. 찾을 수 없는 경우 빈 딕셔너리.
     """
     cookies = await load_json_async(COOKIE_FILE_PATH)
     if not cookies:
         logger.error(
-            "No cookies found. Please ensure 'cookie.json' exists and is valid."
+            "'cookie.json'을 찾을 수 없습니다. 파일이 유효한지 확인하세요."
         )
         return {}
     return cookies
@@ -317,18 +316,18 @@ async def get_session_cookies() -> Dict[str, str]:
 async def get_live_info(
     channel: Dict[str, Any], headers: Dict[str, str], session: aiohttp.ClientSession
 ) -> Tuple[str, Dict[str, Any]]:
-    """Fetches live stream information for a given channel.
+    """주어진 채널의 라이브 스트림 정보를 가져옵니다.
 
     Args:
-        channel: A dictionary containing channel information (e.g., id, name).
-        headers: A dictionary of headers to use for the request.
-        session: The aiohttp.ClientSession to use for the request.
+        channel: 채널 정보(예: id, name)를 포함하는 딕셔너리.
+        headers: 요청에 사용할 헤더 딕셔너리.
+        session: 요청에 사용할 aiohttp.ClientSession.
 
-    Returns:
-        Tuple[str, Dict[str, Any]]: A tuple containing the stream status ('OPEN', 'CLOSE', 'BLOCK')
-        and the content of the live detail API response. Returns an empty string and dictionary on failure.
+    반환값:
+        Tuple[str, Dict[str, Any]]: 스트림 상태('OPEN', 'CLOSE', 'BLOCK')와
+        라이브 상세 API 응답 내용을 포함하는 튜플. 실패 시 빈 문자열과 딕셔너리 반환.
     """
-    logger.debug(f"Fetching live info for channel: {channel.get('name', 'Unknown')}")
+    logger.debug(f"채널 라이브 정보 가져오기: {channel.get('name', 'Unknown')}")
     try:
         async with session.get(
             LIVE_DETAIL_API.format(channel_id=channel["id"]), headers=headers
@@ -336,43 +335,43 @@ async def get_live_info(
             response.raise_for_status()
             data = await response.json()
             logger.debug(
-                f"Successfully fetched live info for channel: {channel.get('name', 'Unknown')}, data: {data}"
+                f"채널 라이브 정보 가져오기 성공: {channel.get('name', 'Unknown')}, 데이터: {data}"
             )
 
             content = data.get("content", {})
             status = content.get("status", "")
             if status == "CLOSE":
                 logger.info(
-                    f"The channel '{channel.get('name', 'Unknown')}' is not currently live."
+                    f"채널 '{channel.get('name', 'Unknown')}'이(가) 현재 라이브 상태가 아닙니다."
                 )
             if status == "BLOCK":
                 logger.info(
-                    f"The channel '{channel.get('name', 'Unknown')}' is blocked."
+                    f"채널 '{channel.get('name', 'Unknown')}'이(가) 차단되었습니다."
                 )
                 return status, {}
             return status, content
     except aiohttp.ClientError as e:
         logger.error(
-            f"HTTP error occurred while fetching live info for {channel.get('name', 'Unknown')}: {e}"
+            f"{channel.get('name', 'Unknown')}의 라이브 정보를 가져오는 중 HTTP 오류 발생: {e}"
         )
     except Exception as e:
         logger.error(
-            f"Failed to fetch live info for {channel.get('name', 'Unknown')}: {e}"
+            f"{channel.get('name', 'Unknown')}의 라이브 정보를 가져오는 데 실패했습니다: {e}"
         )
     return "", {}
 
 
 def shorten_filename(filename: str) -> str:
-    """Shortens a filename if it exceeds the maximum allowed length.
+    """최대 허용 길이를 초과하는 경우 파일 이름을 줄입니다.
 
-    If the filename is too long, it is truncated and a hash is appended
-    to ensure uniqueness while respecting filesystem limits.
+    파일 이름이 너무 길면 잘리고 파일 시스템 제한을 존중하면서
+    고유성을 보장하기 위해 해시가 추가됩니다.
 
     Args:
-        filename: The original filename.
+        filename: 원본 파일 이름.
 
-    Returns:
-        str: The shortened filename if necessary, otherwise the original filename.
+    반환값:
+        str: 필요한 경우 줄인 파일 이름, 그렇지 않으면 원본 파일 이름.
     """
     compound_ext = ""
     if filename.endswith(".ts.part"):
@@ -391,7 +390,7 @@ def shorten_filename(filename: str) -> str:
         shortened_name = shortened_name_bytes.decode("utf-8", "ignore")
         shortened_filename = f"{shortened_name}_{hash_value}{compound_ext}"
         logger.warning(
-            f"Filename '{filename}' is too long. Shortening to '{shortened_filename}'."
+            f"파일 이름 '{filename}'이(가) 너무 깁니다. '{shortened_filename}'(으)로 줄입니다."
         )
         return shortened_filename
 
@@ -399,13 +398,13 @@ def shorten_filename(filename: str) -> str:
 
 
 def format_size(size_bytes: float) -> str:
-    """Formats a size in bytes into a human-readable string.
+    """바이트 단위 크기를 사람이 읽을 수 있는 문자열로 포맷합니다.
 
     Args:
-        size_bytes: The size in bytes.
+        size_bytes: 바이트 단위 크기.
 
-    Returns:
-        str: A human-readable string representation of the size (e.g., "1.23 MB").
+    반환값:
+        str: 사람이 읽을 수 있는 크기 문자열 표현 (예: "1.23 MB").
     """
     if size_bytes <= 0:
         return "0 B"
@@ -421,15 +420,15 @@ time_pattern = re.compile(r"(\d+):(\d+):(\d+)\.(\d+)")
 
 
 def parse_time(time_str: str) -> float:
-    """Parses a time string from ffmpeg's output into seconds.
+    """ffmpeg 출력의 시간 문자열을 초 단위로 파싱합니다.
 
     Args:
-        time_str: The time string in 'HH:MM:SS.ms' format.
+        time_str: 'HH:MM:SS.ms' 형식의 시간 문자열.
 
-    Returns:
-        float: The total number of seconds.
+    반환값:
+        float: 총 초 수.
     """
-    logger.debug(f"Parsing out_time: {time_str}")
+    logger.debug(f"out_time 파싱: {time_str}")
     match = time_pattern.match(time_str)
     if not match:
         return 0
@@ -446,16 +445,16 @@ speed_samples = collections.deque(maxlen=5)
 async def read_stream(
     stream: asyncio.StreamReader, channel_id: str, stream_type: str
 ) -> None:
-    """Reads and parses the progress from ffmpeg's stderr stream.
+    """ffmpeg의 stderr 스트림에서 진행 상황을 읽고 파싱합니다.
 
-    This function reads lines from the stream, parses key-value pairs,
-    calculates bitrate and download speed, and updates the global
-    `channel_progress` dictionary.
+    이 함수는 스트림에서 라인을 읽고, 키-값 쌍을 파싱하고,
+    비트레이트와 다운로드 속도를 계산하고, 전역 `channel_progress`
+    딕셔너리를 업데이트합니다.
 
     Args:
-        stream: The asyncio.StreamReader for ffmpeg's stderr.
-        channel_id: The ID of the channel being recorded.
-        stream_type: A string indicating the type of stream (e.g., 'stderr').
+        stream: ffmpeg의 stderr를 위한 asyncio.StreamReader.
+        channel_id: 녹화 중인 채널의 ID.
+        stream_type: 스트림 유형을 나타내는 문자열 (예: 'stderr').
     """
     summary: Dict[str, str] = {}
     last_log_time = time.time()
@@ -470,7 +469,7 @@ async def read_stream(
                 break
             line_str = line.decode(errors="ignore").strip()
 
-            # Add log
+            # 로그 추가
             logger.debug(f"ffmpeg {stream_type} [{channel_id}]: {line_str}")
 
             if "=" not in line_str:
@@ -490,24 +489,24 @@ async def read_stream(
 
                 total_size_formatted = format_size(total_size)
 
-                # Convert out_time to seconds
+                # out_time을 초로 변환
                 out_time_seconds = parse_time(out_time_str)
 
-                # Calculate bitrate
+                # 비트레이트 계산
                 if out_time_seconds > 0:
-                    bitrate = (total_size * 8) / out_time_seconds  # bits per second
-                    bitrate_kbps = bitrate / 1000  # Convert to kbps
+                    bitrate = (total_size * 8) / out_time_seconds  # 초당 비트
+                    bitrate_kbps = bitrate / 1000  # kbps로 변환
                     bitrate_formatted = f"{bitrate_kbps:.2f} kbps"
                 else:
                     bitrate_formatted = "N/A"
 
-                # Calculate download speed
+                # 다운로드 속도 계산
                 current_time = time.time()
                 if prev_total_size is not None and prev_time is not None:
                     bytes_diff = total_size - prev_total_size
                     time_diff = current_time - prev_time
                     if time_diff > 0:
-                        instant_speed = bytes_diff / time_diff  # Bytes per second
+                        instant_speed = bytes_diff / time_diff  # 초당 바이트
                         speed_samples.append(instant_speed)
                         average_speed = sum(speed_samples) / len(speed_samples)
                         download_speed_formatted = format_size(average_speed) + "/s"
@@ -520,7 +519,7 @@ async def read_stream(
                     prev_total_size = total_size
                     prev_time = current_time
 
-                # Update progress data
+                # 진행 데이터 업데이트
                 async with channel_progress_lock:
                     if channel_id in channel_progress:
                         channel_progress[channel_id].update(
@@ -535,7 +534,7 @@ async def read_stream(
                 last_log_time = current_time
                 summary.clear()
         except Exception as e:
-            logger.error(f"Error occurred while reading stream for {channel_id}: {e}")
+            logger.error(f"{channel_id}의 스트림을 읽는 중 오류 발생: {e}")
             break
 
 
@@ -548,31 +547,31 @@ async def record_stream(
     ffmpeg_path: Path,
     stream_segment_threads: int,
 ) -> None:
-    """Records a live stream for a single channel.
+    """단일 채널의 라이브 스트림을 녹화합니다.
 
-    This function handles the entire recording lifecycle for a channel:
-    - Waits for the channel to go live.
-    - Constructs and manages `streamlink` and `ffmpeg` subprocesses.
-    - Pipes the output of `streamlink` to `ffmpeg`.
-    - Monitors the stream and restarts the processes if the stream drops.
-    - Handles graceful shutdown and file renaming.
+    이 함수는 채널의 전체 녹화 생명주기를 처리합니다:
+    - 채널이 라이브 상태가 될 때까지 기다립니다.
+    - `streamlink`와 `ffmpeg` 하위 프로세스를 구성하고 관리합니다.
+    - `streamlink`의 출력을 `ffmpeg`로 파이프합니다.
+    - 스트림을 모니터링하고 스트림이 끊기면 프로세스를 다시 시작합니다.
+    - 정상적인 종료 및 파일 이름 변경을 처리합니다.
 
     Args:
-        channel: A dictionary containing channel information.
-        headers: Headers for authenticated requests.
-        session: The aiohttp.ClientSession for API calls.
-        delay: A delay in seconds before starting the recording.
-        timeout: The interval in seconds to wait before checking for a live stream again.
-        ffmpeg_path: The path to the ffmpeg executable.
-        stream_segment_threads: The number of threads for streamlink to use.
+        channel: 채널 정보를 포함하는 딕셔너리.
+        headers: 인증된 요청을 위한 헤더.
+        session: API 호출을 위한 aiohttp.ClientSession.
+        delay: 녹화를 시작하기 전의 지연 시간(초).
+        timeout: 라이브 스트림을 다시 확인하기 전 대기할 간격(초).
+        ffmpeg_path: ffmpeg 실행 파일의 경로.
+        stream_segment_threads: streamlink가 사용할 스레드 수.
     """
     channel_name = channel.get("name", "Unknown")
     channel_id = str(channel.get("id", "Unknown"))
-    logger.info(f"Attempting to record stream for channel: {channel_name}")
+    logger.info(f"채널 스트림 녹화 시도: {channel_name}")
     await asyncio.sleep(delay)
 
     if channel.get("active", "on") == "off":
-        logger.info(f"{channel_name} channel is inactive. Skipping recording.")
+        logger.info(f"{channel_name} 채널이 비활성 상태입니다. 녹화를 건너뜁니다.")
         return
 
     recording_started = False
@@ -583,7 +582,7 @@ async def record_stream(
         while not shutdown_event.is_set():
             stream_url = f"https://chzzk.naver.com/live/{channel['id']}"
             if stream_url:
-                logger.debug(f"Found stream URL for channel: {channel_name}")
+                logger.debug(f"채널 스트림 URL 찾음: {channel_name}")
                 try:
                     cookies = await get_session_cookies()
                     while not shutdown_event.is_set():
@@ -594,7 +593,7 @@ async def record_stream(
                             break
 
                         logger.info(
-                            f"Waiting for the channel '{channel_name}' to go live..."
+                            f"채널 '{channel_name}'이(가) 라이브 상태가 될 때까지 대기 중..."
                         )
                         try:
                             await asyncio.wait_for(
@@ -616,7 +615,7 @@ async def record_stream(
                     temp_output_file = shorten_filename(
                         f"[{current_time.replace(':', '_')}] {channel_name} {live_title}.ts.part"
                     )
-                    final_output_file = temp_output_file[:-5]  # Remove '.part'
+                    final_output_file = temp_output_file[:-5]  # '.part' 제거
                     temp_output_path = output_dir / temp_output_file
                     final_output_path = output_dir / final_output_file
 
@@ -624,7 +623,7 @@ async def record_stream(
 
                     if not recording_started:
                         logger.info(
-                            f"Recording started for {channel_name} at {current_time}."
+                            f"{channel_name}의 녹화가 {current_time}에 시작되었습니다."
                         )
                         recording_started = True
                         recording_start_time = current_time
@@ -632,17 +631,17 @@ async def record_stream(
                     if stream_process and stream_process.returncode is None:
                         stream_process.kill()
                         await stream_process.wait()
-                        logger.info("Existing stream process killed successfully.")
+                        logger.info("기존 스트림 프로세스가 성공적으로 종료되었습니다.")
 
                     if ffmpeg_process and ffmpeg_process.returncode is None:
                         ffmpeg_process.kill()
                         await ffmpeg_process.wait()
-                        logger.info("Existing ffmpeg process killed successfully.")
+                        logger.info("기존 ffmpeg 프로세스가 성공적으로 종료되었습니다.")
 
-                    # Create pipes safely
+                    # 파이프 안전하게 생성
                     read_pipe, write_pipe = os.pipe()
                     try:
-                        # Start streamlink process
+                        # streamlink 프로세스 시작
                         streamlink_cmd = [
                             "streamlink",
                             "--stdout",
@@ -678,9 +677,9 @@ async def record_stream(
                             stdout=write_pipe,
                             stderr=asyncio.subprocess.PIPE,
                         )
-                        os.close(write_pipe)  # Close the write end in the parent
+                        os.close(write_pipe)  # 부모에서 쓰기 끝 닫기
 
-                        # Start ffmpeg process
+                        # ffmpeg 프로세스 시작
                         ffmpeg_cmd = [
                             str(ffmpeg_path),
                             "-i",
@@ -718,9 +717,9 @@ async def record_stream(
                             stdout=asyncio.subprocess.PIPE,
                             stderr=asyncio.subprocess.PIPE,
                         )
-                        os.close(read_pipe)  # Close the read end in the parent
+                        os.close(read_pipe)  # 부모에서 읽기 끝 닫기
 
-                        # Initialize channel progress data
+                        # 채널 진행 데이터 초기화
                         async with channel_progress_lock:
                             channel_progress[channel_id] = {
                                 "channel_name": channel_name,
@@ -741,7 +740,7 @@ async def record_stream(
                             return_when=asyncio.FIRST_COMPLETED,
                         )
 
-                        # If shutdown event is set, terminate processes
+                        # 종료 이벤트가 설정되면 프로세스 종료
                         if shutdown_event.is_set():
                             if ffmpeg_process.returncode is None:
                                 ffmpeg_process.kill()
@@ -752,28 +751,28 @@ async def record_stream(
                             break
 
                         logger.info(
-                            f"ffmpeg process for {channel_name} exited with return code {ffmpeg_process.returncode}."
+                            f"{channel_name}의 ffmpeg 프로세스가 반환 코드 {ffmpeg_process.returncode}(으)로 종료되었습니다."
                         )
                         if recording_started:
-                            logger.info(f"Recording stopped for {channel_name}.")
+                            logger.info(f"{channel_name}의 녹화가 중지되었습니다.")
                             recording_started = False
 
                         await stream_process.wait()
                         logger.info(
-                            f"Stream recording process for {channel_name} exited with return code {stream_process.returncode}."
+                            f"{channel_name}의 스트림 녹화 프로세스가 반환 코드 {stream_process.returncode}(으)로 종료되었습니다."
                         )
 
-                        # Atomically rename the temporary file to final output
+                        # 임시 파일의 이름을 최종 출력으로 원자적으로 변경
                         if temp_output_path.exists():
                             temp_output_path.rename(final_output_path)
-                            logger.info(f"Recording saved to {final_output_path}")
+                            logger.info(f"녹화가 {final_output_path}에 저장되었습니다.")
 
-                        # Remove progress data
+                        # 진행 데이터 제거
                         async with channel_progress_lock:
                             channel_progress.pop(channel_id, None)
 
                     finally:
-                        # Ensure pipes are closed
+                        # 파이프가 닫혔는지 확인
                         for fd in (read_pipe, write_pipe):
                             try:
                                 os.close(fd)
@@ -781,22 +780,22 @@ async def record_stream(
                                 pass
 
                 except asyncio.CancelledError:
-                    logger.info(f"Recording task for {channel_name} was cancelled.")
+                    logger.info(f"{channel_name}의 녹화 작업이 취소되었습니다.")
                     break
                 except Exception as e:
                     logger.exception(
-                        f"Error occurred while recording {channel_name}: {e}"
+                        f"{channel_name}을(를) 녹화하는 중 오류 발생: {e}"
                     )
                     if recording_started:
-                        logger.info(f"Recording stopped for {channel_name}.")
+                        logger.info(f"{channel_name}의 녹화가 중지되었습니다.")
                         recording_started = False
             else:
-                logger.error(f"No stream URL available for {channel_name}")
+                logger.error(f"{channel_name}에 사용할 수 있는 스트림 URL이 없습니다.")
                 if recording_started:
-                    logger.info(f"Recording stopped for {channel_name}.")
+                    logger.info(f"{channel_name}의 녹화가 중지되었습니다.")
                     recording_started = False
 
-            # Wait for shutdown event or timeout
+            # 종료 이벤트 또는 타임아웃 대기
             try:
                 await asyncio.wait_for(shutdown_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
@@ -809,23 +808,23 @@ async def record_stream(
         if ffmpeg_process and ffmpeg_process.returncode is None:
             ffmpeg_process.kill()
             await ffmpeg_process.wait()
-        # Attempt to rename any remaining temp files
+        # 남은 임시 파일 이름 변경 시도
         if recording_started and temp_output_path.exists():
             temp_output_path.rename(final_output_path)
-            logger.info(f"Recording saved to {final_output_path}")
-        # Remove progress data
+            logger.info(f"녹화가 {final_output_path}에 저장되었습니다.")
+        # 진행 데이터 제거
         async with channel_progress_lock:
             channel_progress.pop(channel_id, None)
 
 
 async def manage_recording_tasks():
-    """Manages all active recording tasks based on the current settings.
+    """현재 설정에 따라 모든 활성 녹화 작업을 관리합니다.
 
-    This function acts as the main task manager:
-    - Periodically reloads settings from files.
-    - Starts new recording tasks for newly added or activated channels.
-    - Cancels tasks for removed or deactivated channels.
-    - Ensures the application continues to run until a shutdown signal is received.
+    이 함수는 메인 작업 관리자 역할을 합니다:
+    - 파일에서 주기적으로 설정을 다시 로드합니다.
+    - 새로 추가되거나 활성화된 채널에 대해 새 녹화 작업을 시작합니다.
+    - 제거되거나 비활성화된 채널의 작업을 취소합니다.
+    - 종료 신호를 받을 때까지 애플리케이션이 계속 실행되도록 합니다.
     """
     active_tasks: Dict[str, asyncio.Task] = {}
     timeout, stream_segment_threads, channels, delays = await load_settings()
@@ -834,7 +833,7 @@ async def manage_recording_tasks():
     ffmpeg_path = await setup_paths()
 
     if not ffmpeg_path or not ffmpeg_path.exists():
-        logger.error("ffmpeg executable not found. Exiting.")
+        logger.error("ffmpeg 실행 파일을 찾을 수 없습니다. 종료합니다.")
         return
 
     async with aiohttp.ClientSession() as session:
@@ -852,22 +851,22 @@ async def manage_recording_tasks():
                     str(channel.get("id")) for channel in new_channels
                 }
 
-                # Cancel tasks for removed or deactivated channels
+                # 제거되거나 비활성화된 채널의 작업 취소
                 for channel_id in list(active_tasks.keys()):
                     if channel_id not in current_channel_ids:
                         task = active_tasks.pop(channel_id)
                         task.cancel()
                         logger.info(
-                            f"Cancelled recording task for deactivated channel: {channel_id}"
+                            f"비활성화된 채널의 녹화 작업 취소됨: {channel_id}"
                         )
-                        # Remove progress data
+                        # 진행 데이터 제거
                         async with channel_progress_lock:
                             channel_progress.pop(channel_id, None)
 
                 for channel in new_channels:
                     channel_id = str(channel.get("id"))
                     if not channel_id:
-                        logger.warning("Channel ID is missing in configuration.")
+                        logger.warning("구성에서 채널 ID가 누락되었습니다.")
                         continue
                     if channel_id not in active_tasks:
                         if channel.get("active", "on") == "on":
@@ -885,78 +884,78 @@ async def manage_recording_tasks():
                             active_tasks[channel_id] = task
                             active_channels += 1
                             logger.info(
-                                f"Started recording task for new active channel: {channel.get('name', 'Unknown')}"
+                                f"새 활성 채널에 대한 녹화 작업 시작됨: {channel.get('name', 'Unknown')}"
                             )
                     else:
                         if channel.get("active", "on") == "off":
                             task = active_tasks.pop(channel_id)
                             task.cancel()
                             logger.info(
-                                f"Cancelled recording task for deactivated channel: {channel.get('name', 'Unknown')}"
+                                f"비활성화된 채널의 녹화 작업 취소됨: {channel.get('name', 'Unknown')}"
                             )
-                            # Remove progress data
+                            # 진행 데이터 제거
                             async with channel_progress_lock:
                                 channel_progress.pop(channel_id, None)
                         else:
                             active_channels += 1
 
                 if active_channels == 0:
-                    logger.info("All channels are inactive. No active recordings.")
+                    logger.info("모든 채널이 비활성 상태입니다. 활성 녹화가 없습니다.")
 
-                # Wait for shutdown event or 10 seconds
+                # 종료 이벤트 또는 10초 대기
                 try:
                     await asyncio.wait_for(shutdown_event.wait(), timeout=10)
                 except asyncio.TimeoutError:
                     continue
         except asyncio.CancelledError:
-            logger.info("Recording management task was cancelled.")
+            logger.info("녹화 관리 작업이 취소되었습니다.")
         finally:
-            # Cancel all active recording tasks
+            # 모든 활성 녹화 작업 취소
             for task in active_tasks.values():
                 task.cancel()
             await asyncio.gather(*active_tasks.values(), return_exceptions=True)
 
 
 def handle_shutdown():
-    """Initiates a graceful shutdown of the application."""
-    logger.info("Received shutdown signal. Shutting down...")
+    """애플리케이션의 정상적인 종료를 시작합니다."""
+    logger.info("종료 신호를 받았습니다. 종료 중...")
     shutdown_event.set()
 
 
 async def display_progress():
-    """Displays a real-time progress dashboard in the terminal.
+    """터미널에 실시간 진행 상황 대시보드를 표시합니다.
 
-    This function uses the Rich library to create a layout that shows:
-    - A panel with the latest log messages.
-    - A panel with a table for each active recording, displaying bitrate,
-      download speed, total size, and duration.
+    이 함수는 Rich 라이브러리를 사용하여 다음을 표시하는 레이아웃을 만듭니다:
+    - 최신 로그 메시지가 있는 패널.
+    - 각 활성 녹화에 대한 테이블이 있는 패널, 비트레이트, 다운로드 속도,
+      총 크기 및 기간을 표시합니다.
     """
     layout = Layout()
 
-    # Split the layout into upper and lower sections
+    # 레이아웃을 위쪽과 아래쪽 섹션으로 분할
     layout.split(
         Layout(name="upper", ratio=1),
         Layout(name="lower", ratio=3),
     )
 
-    log_messages = []  # List for log messages
+    log_messages = []  # 로그 메시지 목록
 
     with Live(layout, console=console, refresh_per_second=5, screen=False):
         while not shutdown_event.is_set() or not log_queue.empty():
-            # Update display for channel progress
+            # 채널 진행 상황 표시 업데이트
             channel_panels = []
 
             async with channel_progress_lock:
                 if channel_progress:
                     for progress_data in channel_progress.values():
-                        # Create a table for each channel
+                        # 각 채널에 대한 테이블 생성
                         table = Table(show_header=True, header_style="bold magenta")
-                        table.add_column("Channel", style="cyan", no_wrap=True)
-                        table.add_column("Bitrate")
-                        table.add_column("Download Speed")
-                        table.add_column("Total Size")
-                        table.add_column("Out Time")
-                        table.add_column("Start Time")
+                        table.add_column("채널", style="cyan", no_wrap=True)
+                        table.add_column("비트레이트")
+                        table.add_column("다운로드 속도")
+                        table.add_column("총 크기")
+                        table.add_column("경과 시간")
+                        table.add_column("시작 시간")
 
                         table.add_row(
                             progress_data.get("channel_name", "Unknown"),
@@ -967,54 +966,54 @@ async def display_progress():
                             progress_data.get("recording_start_time", "N/A"),
                         )
 
-                        # Wrap each channel's table in a panel
+                        # 각 채널의 테이블을 패널로 래핑
                         panel = Panel(
                             table, title=progress_data.get("channel_name", "Unknown")
                         )
                         channel_panels.append(panel)
                 else:
-                    # Show a message if no channels are recording
+                    # 녹화 중인 채널이 없으면 메시지 표시
                     channel_panels.append(
-                        Panel("No active recordings.", title="Recording Progress")
+                        Panel("활성 녹화 없음.", title="녹화 진행 상황")
                     )
 
-            # Group all channel panels together
+            # 모든 채널 패널을 함께 그룹화
             progress_display = Group(*channel_panels)
 
             layout["lower"].update(progress_display)
 
-            # Update log messages
+            # 로그 메시지 업데이트
             try:
                 while True:
                     msg = await asyncio.wait_for(log_queue.get(), timeout=0.1)
                     log_messages.append(msg)
-                    # Keep only the last 15 log messages
+                    # 마지막 15개의 로그 메시지만 유지
                     log_messages = log_messages[-15:]
             except (asyncio.QueueEmpty, asyncio.TimeoutError):
                 pass
 
-            # Update the log panel
+            # 로그 패널 업데이트
             log_text = Text("\n".join(log_messages))
-            layout["upper"].update(Panel(log_text, title="Logs"))
+            layout["upper"].update(Panel(log_text, title="로그"))
 
             await asyncio.sleep(0.1)
 
 
 async def main() -> None:
-    """The main entry point of the application.
+    """애플리케이션의 메인 진입점.
 
-    - Sets up signal handlers for graceful shutdown.
-    - Starts the `display_progress` and `manage_recording_tasks` tasks.
-    - Waits for the tasks to complete and handles shutdown procedures.
+    - 정상적인 종료를 위한 신호 핸들러를 설정합니다.
+    - `display_progress` 및 `manage_recording_tasks` 작업을 시작합니다.
+    - 작업이 완료될 때까지 기다리고 종료 절차를 처리합니다.
     """
-    # Register signal handlers for graceful shutdown
+    # 정상적인 종료를 위한 신호 핸들러 등록
     loop = asyncio.get_running_loop()
     if platform.system() != "Windows":
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, handle_shutdown)
     else:
-        # On Windows, signals are not supported in the event loop.
-        # We'll handle KeyboardInterrupt exception instead.
+        # Windows에서는 이벤트 루프에서 신호가 지원되지 않습니다.
+        # 대신 KeyboardInterrupt 예외를 처리합니다.
         pass
 
     display_task = asyncio.create_task(display_progress())
@@ -1022,19 +1021,19 @@ async def main() -> None:
     try:
         await manage_recording_tasks()
     except KeyboardInterrupt:
-        logger.info("Received KeyboardInterrupt. Shutting down...")
+        logger.info("KeyboardInterrupt를 받았습니다. 종료 중...")
         handle_shutdown()
-        # Wait a moment to allow tasks to clean up
+        # 작업이 정리될 시간을 잠시 줍니다.
         await asyncio.sleep(0.1)
     except asyncio.CancelledError:
-        logger.info("Main task was cancelled.")
+        logger.info("메인 작업이 취소되었습니다.")
     except Exception as e:
-        logger.exception(f"An error occurred: {e}")
+        logger.exception(f"오류 발생: {e}")
     finally:
-        # Wait for display_progress to process remaining logs
+        # 남은 로그를 처리하기 위해 display_progress를 기다립니다.
         shutdown_event.set()
         await display_task
-        logger.info("Recorder has been shut down.")
+        logger.info("녹화기가 종료되었습니다.")
 
 
 if __name__ == "__main__":

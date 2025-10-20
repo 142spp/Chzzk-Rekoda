@@ -2,7 +2,7 @@
 
 An automatic recording program for Chzzk, supporting Windows, macOS, and Linux, built using Streamlink and ffmpeg.
 
-**Korean:** [Original README](https://github.com/munsy0227/Chzzk-Rekoda/blob/main/README.ko.md)
+**Korean:** [README in Korean (README.ko.md)](README.ko.md)
 
 **Tutorials:**
 - [How to Install Chzzk-Rekoda on Android Systems](https://github.com/munsy0227/Chzzk-Rekoda/discussions/18)
