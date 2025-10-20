@@ -1,3 +1,11 @@
+"""
+This script is the main entry point for the Chzzk Rekoda, an automated recording tool for the Chzzk streaming platform.
+
+It uses asyncio for concurrent stream recording, aiohttp for asynchronous HTTP requests,
+and the Rich library to display a real-time progress dashboard in the terminal.
+The script manages multiple recording tasks, handles graceful shutdown, and provides
+detailed logging.
+"""
 import asyncio
 import hashlib
 import logging
@@ -41,6 +49,11 @@ log_queue: asyncio.Queue = asyncio.Queue()
 
 # Helper function to load log_enabled
 def get_log_enabled() -> bool:
+    """Checks if logging is enabled by reading from 'log_enabled.txt'.
+
+    Returns:
+        bool: True if logging is enabled, False otherwise.
+    """
     script_directory = os.path.dirname(os.path.abspath(__file__))
     log_enabled_file_path = os.path.join(script_directory, "log_enabled.txt")
     if os.path.exists(log_enabled_file_path):
@@ -51,6 +64,11 @@ def get_log_enabled() -> bool:
 
 # Function to toggle log_enabled
 def toggle_log_enabled():
+    """Toggles the logging state between enabled and disabled.
+
+    This function reads the current state from 'log_enabled.txt', inverts it,
+    and writes the new state back to the file.
+    """
     script_directory = os.path.dirname(os.path.abspath(__file__))
     log_enabled_file_path = os.path.join(script_directory, "log_enabled.txt")
     current_state = get_log_enabled()
@@ -62,11 +80,25 @@ def toggle_log_enabled():
 
 # Custom logging handler to put log messages into the queue
 class QueueHandler(logging.Handler):
+    """A logging handler that puts log records into an asyncio queue."""
+
     def __init__(self, queue: asyncio.Queue):
+        """Initializes the handler with a given queue.
+
+        Args:
+            queue: The asyncio.Queue to which log messages will be sent.
+        """
         super().__init__()
         self.queue = queue
 
     def emit(self, record):
+        """Formats and puts a log record into the queue.
+
+        If the queue is full, the message is dropped.
+
+        Args:
+            record: The log record to be emitted.
+        """
         msg = self.format(record)
         try:
             self.queue.put_nowait(msg)
@@ -76,7 +108,17 @@ class QueueHandler(logging.Handler):
 
 # Logger setup
 class FfmpegStderrFilter(logging.Filter):
+    """A logging filter to exclude specific ffmpeg stderr messages."""
+
     def filter(self, record):
+        """Filters out 'Invalid DTS' messages from ffmpeg stderr.
+
+        Args:
+            record: The log record to be checked.
+
+        Returns:
+            bool: False if the message should be filtered out, True otherwise.
+        """
         msg = record.getMessage()
         if "ffmpeg stderr" in msg and "Invalid DTS" in msg:
             return False
@@ -84,6 +126,14 @@ class FfmpegStderrFilter(logging.Filter):
 
 
 def setup_logger() -> logging.Logger:
+    """Configures and returns the main logger for the application.
+
+    The logger is configured with a file handler (if logging is enabled)
+    and a queue handler for displaying logs in the UI.
+
+    Returns:
+        logging.Logger: The configured logger instance.
+    """
     logger = logging.getLogger("Recorder")
     logger.setLevel(logging.DEBUG)
 
@@ -142,6 +192,14 @@ shutdown_event = asyncio.Event()
 
 # Helper functions
 async def setup_paths() -> Optional[Path]:
+    """Determines the path to the ffmpeg executable.
+
+    It checks for ffmpeg in the local 'ffmpeg/bin' directory on Windows,
+    and in the system's PATH on other operating systems.
+
+    Returns:
+        Optional[Path]: The path to the ffmpeg executable, or None if not found.
+    """
     base_dir = Path(__file__).parent
     os_name = platform.system()
     ffmpeg_path: Optional[Path] = None
@@ -170,6 +228,14 @@ async def setup_paths() -> Optional[Path]:
 
 
 async def load_json_async(file_path: Path) -> Any:
+    """Asynchronously loads a JSON file.
+
+    Args:
+        file_path: The path to the JSON file.
+
+    Returns:
+        Any: The parsed JSON content, or None if an error occurs.
+    """
     if not file_path.exists():
         logger.error(f"File not found: {file_path}")
         return None
@@ -186,6 +252,15 @@ async def load_json_async(file_path: Path) -> Any:
 
 
 async def load_settings() -> Tuple[int, int, List[Dict[str, Any]], Dict[str, int]]:
+    """Loads various settings from their respective files.
+
+    This function concurrently loads the timeout, stream segment threads,
+    channel list, and delay settings.
+
+    Returns:
+        Tuple[int, int, List[Dict[str, Any]], Dict[str, int]]: A tuple containing
+        the timeout, stream segment threads, list of channels, and a dictionary of delays.
+    """
     settings = await asyncio.gather(
         load_json_async(TIME_FILE_PATH),
         load_json_async(THREAD_FILE_PATH),
@@ -203,6 +278,14 @@ async def load_settings() -> Tuple[int, int, List[Dict[str, Any]], Dict[str, int
 
 
 def get_auth_headers(cookies: Dict[str, str]) -> Dict[str, str]:
+    """Constructs authentication headers from cookie values.
+
+    Args:
+        cookies: A dictionary containing 'NID_AUT' and 'NID_SES' cookies.
+
+    Returns:
+        Dict[str, str]: A dictionary of headers for authenticated requests.
+    """
     nid_aut = cookies.get("NID_AUT", "")
     nid_ses = cookies.get("NID_SES", "")
     return {
@@ -217,6 +300,11 @@ def get_auth_headers(cookies: Dict[str, str]) -> Dict[str, str]:
 
 
 async def get_session_cookies() -> Dict[str, str]:
+    """Loads session cookies from 'cookie.json'.
+
+    Returns:
+        Dict[str, str]: A dictionary of session cookies, or an empty dictionary if not found.
+    """
     cookies = await load_json_async(COOKIE_FILE_PATH)
     if not cookies:
         logger.error(
@@ -229,6 +317,17 @@ async def get_session_cookies() -> Dict[str, str]:
 async def get_live_info(
     channel: Dict[str, Any], headers: Dict[str, str], session: aiohttp.ClientSession
 ) -> Tuple[str, Dict[str, Any]]:
+    """Fetches live stream information for a given channel.
+
+    Args:
+        channel: A dictionary containing channel information (e.g., id, name).
+        headers: A dictionary of headers to use for the request.
+        session: The aiohttp.ClientSession to use for the request.
+
+    Returns:
+        Tuple[str, Dict[str, Any]]: A tuple containing the stream status ('OPEN', 'CLOSE', 'BLOCK')
+        and the content of the live detail API response. Returns an empty string and dictionary on failure.
+    """
     logger.debug(f"Fetching live info for channel: {channel.get('name', 'Unknown')}")
     try:
         async with session.get(
@@ -264,6 +363,17 @@ async def get_live_info(
 
 
 def shorten_filename(filename: str) -> str:
+    """Shortens a filename if it exceeds the maximum allowed length.
+
+    If the filename is too long, it is truncated and a hash is appended
+    to ensure uniqueness while respecting filesystem limits.
+
+    Args:
+        filename: The original filename.
+
+    Returns:
+        str: The shortened filename if necessary, otherwise the original filename.
+    """
     compound_ext = ""
     if filename.endswith(".ts.part"):
         compound_ext = ".ts.part"
@@ -289,6 +399,14 @@ def shorten_filename(filename: str) -> str:
 
 
 def format_size(size_bytes: float) -> str:
+    """Formats a size in bytes into a human-readable string.
+
+    Args:
+        size_bytes: The size in bytes.
+
+    Returns:
+        str: A human-readable string representation of the size (e.g., "1.23 MB").
+    """
     if size_bytes <= 0:
         return "0 B"
     size_names = ["B", "KB", "MB", "GB", "TB"]
@@ -302,7 +420,15 @@ def format_size(size_bytes: float) -> str:
 time_pattern = re.compile(r"(\d+):(\d+):(\d+)\.(\d+)")
 
 
-def parse_time(time_str):
+def parse_time(time_str: str) -> float:
+    """Parses a time string from ffmpeg's output into seconds.
+
+    Args:
+        time_str: The time string in 'HH:MM:SS.ms' format.
+
+    Returns:
+        float: The total number of seconds.
+    """
     logger.debug(f"Parsing out_time: {time_str}")
     match = time_pattern.match(time_str)
     if not match:
@@ -320,6 +446,17 @@ speed_samples = collections.deque(maxlen=5)
 async def read_stream(
     stream: asyncio.StreamReader, channel_id: str, stream_type: str
 ) -> None:
+    """Reads and parses the progress from ffmpeg's stderr stream.
+
+    This function reads lines from the stream, parses key-value pairs,
+    calculates bitrate and download speed, and updates the global
+    `channel_progress` dictionary.
+
+    Args:
+        stream: The asyncio.StreamReader for ffmpeg's stderr.
+        channel_id: The ID of the channel being recorded.
+        stream_type: A string indicating the type of stream (e.g., 'stderr').
+    """
     summary: Dict[str, str] = {}
     last_log_time = time.time()
 
@@ -411,6 +548,24 @@ async def record_stream(
     ffmpeg_path: Path,
     stream_segment_threads: int,
 ) -> None:
+    """Records a live stream for a single channel.
+
+    This function handles the entire recording lifecycle for a channel:
+    - Waits for the channel to go live.
+    - Constructs and manages `streamlink` and `ffmpeg` subprocesses.
+    - Pipes the output of `streamlink` to `ffmpeg`.
+    - Monitors the stream and restarts the processes if the stream drops.
+    - Handles graceful shutdown and file renaming.
+
+    Args:
+        channel: A dictionary containing channel information.
+        headers: Headers for authenticated requests.
+        session: The aiohttp.ClientSession for API calls.
+        delay: A delay in seconds before starting the recording.
+        timeout: The interval in seconds to wait before checking for a live stream again.
+        ffmpeg_path: The path to the ffmpeg executable.
+        stream_segment_threads: The number of threads for streamlink to use.
+    """
     channel_name = channel.get("name", "Unknown")
     channel_id = str(channel.get("id", "Unknown"))
     logger.info(f"Attempting to record stream for channel: {channel_name}")
@@ -664,6 +819,14 @@ async def record_stream(
 
 
 async def manage_recording_tasks():
+    """Manages all active recording tasks based on the current settings.
+
+    This function acts as the main task manager:
+    - Periodically reloads settings from files.
+    - Starts new recording tasks for newly added or activated channels.
+    - Cancels tasks for removed or deactivated channels.
+    - Ensures the application continues to run until a shutdown signal is received.
+    """
     active_tasks: Dict[str, asyncio.Task] = {}
     timeout, stream_segment_threads, channels, delays = await load_settings()
     cookies = await get_session_cookies()
@@ -755,11 +918,19 @@ async def manage_recording_tasks():
 
 
 def handle_shutdown():
+    """Initiates a graceful shutdown of the application."""
     logger.info("Received shutdown signal. Shutting down...")
     shutdown_event.set()
 
 
 async def display_progress():
+    """Displays a real-time progress dashboard in the terminal.
+
+    This function uses the Rich library to create a layout that shows:
+    - A panel with the latest log messages.
+    - A panel with a table for each active recording, displaying bitrate,
+      download speed, total size, and duration.
+    """
     layout = Layout()
 
     # Split the layout into upper and lower sections
@@ -830,6 +1001,12 @@ async def display_progress():
 
 
 async def main() -> None:
+    """The main entry point of the application.
+
+    - Sets up signal handlers for graceful shutdown.
+    - Starts the `display_progress` and `manage_recording_tasks` tasks.
+    - Waits for the tasks to complete and handles shutdown procedures.
+    """
     # Register signal handlers for graceful shutdown
     loop = asyncio.get_running_loop()
     if platform.system() != "Windows":

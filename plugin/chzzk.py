@@ -1,3 +1,10 @@
+"""
+This module provides a Streamlink plugin for Chzzk, Naver's streaming service.
+
+It defines custom HLS stream handling classes to manage token-based authentication
+and periodic playlist refreshes. The plugin extracts stream information from Chzzk's
+internal API and makes it available to Streamlink.
+"""
 import logging
 import re
 import time
@@ -19,13 +26,24 @@ log = logging.getLogger(__name__)
 
 
 class ChzzkHLSStreamWorker(HLSStreamWorker):
-    """
-    Custom HLS Stream Worker for Chzzk.
+    """A custom HLS stream worker for Chzzk.
+
+    This worker handles HLS playlist fetching with a retry mechanism. If a 4xx
+    error occurs, it triggers a playlist refresh in the parent stream to get a
+    new token.
     """
 
     stream: "ChzzkHLSStream"
 
     def _fetch_playlist(self) -> Any:
+        """Fetches the HLS playlist, with a retry on failure.
+
+        Returns:
+            The fetched playlist content.
+
+        Raises:
+            StreamError: If the playlist cannot be fetched after retries.
+        """
         for attempt in range(2):  # Retry once before failing
             try:
                 return super()._fetch_playlist()
@@ -40,16 +58,16 @@ class ChzzkHLSStreamWorker(HLSStreamWorker):
 
 
 class ChzzkHLSStreamReader(HLSStreamReader):
-    """
-    Custom HLS Stream Reader for Chzzk.
-    """
+    """A custom HLS stream reader for Chzzk that uses the custom worker."""
 
     __worker__ = ChzzkHLSStreamWorker
 
 
 class ChzzkHLSStream(HLSStream):
-    """
-    Custom HLS Stream for Chzzk with token refresh capability.
+    """A custom HLS stream for Chzzk with token refresh capability.
+
+    This class manages the HLS stream URL, automatically refreshing it before
+    the authentication token expires.
     """
 
     __shortname__ = "hls-chzzk"
@@ -58,6 +76,15 @@ class ChzzkHLSStream(HLSStream):
     _REFRESH_BEFORE = 3 * 60 * 60  # 3 hours
 
     def __init__(self, session, url: str, channel_id: str, *args, **kwargs) -> None:
+        """Initializes the ChzzkHLSStream.
+
+        Args:
+            session: The Streamlink session object.
+            url: The HLS stream URL.
+            channel_id: The ID of the Chzzk channel.
+            *args: Additional arguments for the base class.
+            **kwargs: Additional keyword arguments for the base class.
+        """
         super().__init__(session, url, *args, **kwargs)
         self._url = url
         self._channel_id = channel_id
@@ -65,8 +92,13 @@ class ChzzkHLSStream(HLSStream):
         self._expire = self._get_expire_time(url)
 
     def refresh_playlist(self) -> None:
-        """
-        Refresh the stream URL to get a new token and handle domain change.
+        """Refreshes the stream URL to get a new token.
+
+        This method fetches the latest live details, finds a valid HLS stream,
+        and updates the current stream URL with a new token.
+
+        Raises:
+            StreamError: If a new stream URL cannot be obtained.
         """
         log.debug("Refreshing the stream URL to get a new token.")
         datatype, data = self._api.get_live_detail(self._channel_id)
@@ -96,16 +128,23 @@ class ChzzkHLSStream(HLSStream):
         raise StreamError("No valid HLS stream found in the refreshed playlist.")
 
     def _update_domain(self, url: str) -> str:
-        """
-        Update the domain of the given URL if it matches specific criteria.
+        """Updates the domain of the stream URL if necessary.
+
+        Args:
+            url: The URL to be updated.
+
+        Returns:
+            The updated URL.
         """
         if "livecloud.pstatic.net" in url:
             return url.replace("livecloud.pstatic.net", "nlive-streaming.navercdn.com")
         return url
 
     def _replace_token(self, new_url: str) -> None:
-        """
-        Replace the token in the current URL with the token from the new URL.
+        """Replaces the token in the current stream URL with a new one.
+
+        Args:
+            new_url: The new URL containing the updated token.
         """
         parsed_old = urlparse(self._url)
         parsed_new = urlparse(new_url)
@@ -118,8 +157,13 @@ class ChzzkHLSStream(HLSStream):
         self._url = urlunparse(parsed_old._replace(query=new_query))
 
     def _get_expire_time(self, url: str) -> Optional[int]:
-        """
-        Extract the expiration time from the URL's 'exp' parameter.
+        """Extracts the expiration time from the URL's 'exp' parameter.
+
+        Args:
+            url: The stream URL with an 'exp' query parameter.
+
+        Returns:
+            The expiration timestamp as an integer, or None if not found.
         """
         parsed_url = urlparse(url)
         qs = parse_qs(parsed_url.query)
@@ -129,8 +173,10 @@ class ChzzkHLSStream(HLSStream):
         return None
 
     def _should_refresh(self) -> bool:
-        """
-        Determine if the stream URL should be refreshed based on expiration time.
+        """Determines if the stream URL should be refreshed.
+
+        Returns:
+            True if the token is close to expiring, False otherwise.
         """
         return (
             self._expire is not None
@@ -156,9 +202,7 @@ class LiveDetail(TypedDict):
 
 @dataclass
 class ChzzkAPI:
-    """
-    API client for Chzzk.
-    """
+    """An API client for the Chzzk platform."""
 
     session: Any
     _CHANNELS_LIVE_DETAIL_URL: str = (
@@ -168,6 +212,16 @@ class ChzzkAPI:
     def _query_api(
         self, url: str, *schemas: validate.Schema
     ) -> Tuple[str, Union[Dict[str, Any], str]]:
+        """Performs a query to the Chzzk API.
+
+        Args:
+            url: The API endpoint URL.
+            *schemas: Validation schemas for the response.
+
+        Returns:
+            A tuple containing the status ('success' or 'error') and the
+            response data or error message.
+        """
         response = self.session.http.get(
             url,
             acceptable_status=(200, 404),
@@ -204,8 +258,14 @@ class ChzzkAPI:
         return response
 
     def get_live_detail(self, channel_id: str) -> Tuple[str, Union[LiveDetail, str]]:
-        """
-        Get live stream details for a given channel.
+        """Fetches live stream details for a given channel.
+
+        Args:
+            channel_id: The ID of the channel.
+
+        Returns:
+            A tuple containing the status and the live detail information
+            or an error message.
         """
         return self._query_api(
             self._CHANNELS_LIVE_DETAIL_URL.format(channel_id=channel_id),
@@ -260,13 +320,12 @@ class ChzzkAPI:
     ),
 )
 class Chzzk(Plugin):
-    """
-    Plugin for Chzzk live streams.
-    """
+    """A Streamlink plugin for Chzzk live streams."""
 
     _STATUS_OPEN = "OPEN"
 
     def __init__(self, *args, **kwargs) -> None:
+        """Initializes the Chzzk plugin."""
         super().__init__(*args, **kwargs)
         self._api = ChzzkAPI(self.session)
         self.author: Optional[str] = None
@@ -274,6 +333,15 @@ class Chzzk(Plugin):
         self.title: Optional[str] = None
 
     def _get_live(self, channel_id: str) -> Optional[Dict[str, HLSStream]]:
+        """Retrieves the live streams for a channel.
+
+        Args:
+            channel_id: The ID of the channel.
+
+        Returns:
+            A dictionary of available HLS streams, or None if the stream
+            is unavailable or an error occurs.
+        """
         datatype, data = self._api.get_live_detail(channel_id)
         if datatype == "error":
             log.error(data)
@@ -314,14 +382,26 @@ class Chzzk(Plugin):
         return streams
 
     def _update_domain(self, url: str) -> str:
-        """
-        Update the domain of the given URL if it matches specific criteria.
+        """Updates the domain of the stream URL if necessary.
+
+        Args:
+            url: The URL to be updated.
+
+        Returns:
+            The updated URL.
         """
         if "livecloud.pstatic.net" in url:
             return url.replace("livecloud.pstatic.net", "nlive-streaming.navercdn.com")
         return url
 
     def _get_streams(self) -> Optional[Dict[str, HLSStream]]:
+        """The main method for discovering streams.
+
+        This method is called by Streamlink to get the available streams for the URL.
+
+        Returns:
+            A dictionary of streams, or None.
+        """
         if self.matches["live"]:
             return self._get_live(self.match["channel_id"])
         return None
