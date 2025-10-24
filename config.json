@@ -1,0 +1,47 @@
+{
+  "channels": [
+    {
+      "id": "1b0561f3051c10a24b9d8ec9a6cb3374",
+      "name": "둥그레",
+      "output_dir": "둥그레",
+      "identifier": "ch1",
+      "active": "off"
+    },
+    {
+      "id": "c0d9723cbb75dc223c6aa8a9d4f56002",
+      "name": "허니츄러스",
+      "output_dir": "허니츄러스",
+      "identifier": "ch2",
+      "active": "off"
+    },
+    {
+      "id": "c847a58a1599988f6154446c75366523",
+      "name": "도파",
+      "output_dir": "도파",
+      "identifier": "ch3",
+      "active": "off"
+    },
+    {
+      "id": "3a1002d10bedbce2eb100dadcdb1782f",
+      "name": "시읏이",
+      "output_dir": "시읏이",
+      "identifier": "ch4",
+      "active": "on"
+    }
+  ],
+  "delays": {
+    "ch1": 0,
+    "ch2": 1,
+    "ch3": 2,
+    "ch4": 3
+  },
+  "cookies": {
+    "NID_SES": "AAABqyyneBypPf0vimROoY128YOOrsFo7F3Wt1bwkesE+hRalUsG6oU2+dEtjf21FBevxL5+1x91Qmu28A1ZWgYIb+Zo97Mp4Ge70uuk7QHv96RwKjXJtUNUI5YT9kP4ZI1fTTjRm5FSCZYftV3YkSs10PRgMBcKfxMbrqD/6I8d5FWwoctU5LrbWh9oERdYxr/FEjUDm/b/MrPZmy4k4H5EtMPhdhObqaLXkbqDnn4x28vDyUZQ8KlBe6XcdJHfvbm1Q9qIXKpjUo8BpsE19lpARX62qh6s4wf5tCBUi+0+voc3kTMnDK5vN3HjRnH1gZiLVEmMWrZPTEgWnQrWoRTpMwj227abPlfKNMYzzkhqf//MJZWHSjnmnQKC3QCUNnND3PfrrR9vFe2z4jdnV3CmF77n2ubD1t6evkpDQxYu1Ii4KRart+rMmSrQs6jcGV8L1ohG5JKPEFwsOmI/7/h07fqgmjM1qIrJb4Yhgs32WeNWKXrIL/MBQwP4VhvM1DH9ktVVJ/lWNgW8iT4QvboM6DSnNzVDp/IdJkrD3rA5OIKQ2y+se1GMA+kHiVQKm18Vjg==",
+    "NID_AUT": "V43ku3bu5bcdNLegOanugitOW9SFTKPKKjVN1RMkhNOnkYFdiTuaZHhwE8SLb0oL"
+  },
+  "recorder_settings": {
+    "threads": 2,
+    "rescan_interval": 60,
+    "logging_enabled": true
+  }
+}
