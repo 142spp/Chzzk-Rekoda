@@ -8,6 +8,7 @@
 import asyncio
 import hashlib
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import platform
 import re
@@ -76,8 +77,8 @@ def setup_logger(config: Dict[str, Any]) -> logging.Logger:
 
     if config.get("recorder_settings", {}).get("logging_enabled", True):
         formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        file_handler = logging.FileHandler("log.log", encoding="utf-8")
-        file_handler.setLevel(logging.DEBUG)
+        file_handler = RotatingFileHandler("log.log", maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         file_handler.addFilter(FfmpegStderrFilter())
         logger.addHandler(file_handler)
